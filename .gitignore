@@ -1,0 +1,12 @@
+# Zig
+.zig-cache/
+zig-out/
+/release/
+/debug/
+/build/
+/build-*/
+/docgen_tmp/
+zig-cache/
+
+# Python
+__pycache__/
