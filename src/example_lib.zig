@@ -23,12 +23,12 @@ pub const MyStruct = extern struct {
     }
 
     pub fn print(ptr: *MyStruct) callconv(.C) void {
-        std.debug.print("from zig: {any}\n", .{ptr.*});
+        std.debug.print("print: {any}\n", .{ptr.*});
     }
 
     pub fn print_pystring(_: *MyStruct, str_ptr: [*:0]u8) callconv(.C) void {
         const str: []u8 = std.mem.span(str_ptr); // strips off sentinel
-        std.debug.print("{s}\n", .{str});
+        std.debug.print("print_pystring: {s}\n", .{str});
     }
 };
 

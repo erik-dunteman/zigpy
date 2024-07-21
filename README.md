@@ -36,7 +36,13 @@ pub const MyStruct = extern struct {
 
     // some arbitrary method
     pub fn print(ptr: *MyStruct) callconv(.C) void {
-        std.debug.print("from zig: {any}\n", .{ptr.*});
+        std.debug.print("print: {any}\n", .{ptr.*});
+    }
+
+    // method with string args
+    pub fn print_pystring(_: *MyStruct, str_ptr: [*:0]u8) callconv(.C) void {
+        const str: []u8 = std.mem.span(str_ptr); // strips off sentinel
+        std.debug.print("print_pystring: {s}\n", .{str});
     }
 };
 
@@ -95,6 +101,11 @@ class MyStruct():
 
   def print(self): 
       return libzigpy.codegenstruct_print(self.ptr)
+
+
+  def print_pystring(self, arg1: str): 
+      c_arg1 = c_char_p(arg1.encode('utf-8'))
+      return libzigpy.codegenstruct_print_pystring(self.ptr, c_arg1)
 ```
 which can be imported and used in any python program:
 ```python
@@ -111,4 +122,6 @@ my_struct.a = 10
 print(my_struct.a) # -> 10
 
 # Call public methods
-my_struct.print() # -> from zig: example_lib.MyStruct{ .a = 10, .b = 20 }
+my_struct.print() # -> print: example_lib.MyStruct{ .a = 10, .b = 20 }
+
+my_struct.print_pystring("hello world") # -> print_pystring: hello world
