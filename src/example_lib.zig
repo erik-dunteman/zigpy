@@ -30,6 +30,15 @@ pub const MyStruct = extern struct {
         const str: []u8 = std.mem.span(str_ptr); // strips off sentinel
         std.debug.print("print_pystring: {s}\n", .{str});
     }
+
+    pub fn sum(ptr: *MyStruct) callconv(.C) i32 {
+        return ptr.a + ptr.b;
+    }
+
+    // return statically-allocated string, infinite lifetime
+    pub fn get_static_str() callconv(.C) [*:0]const u8 {
+        return "Hello from Zig!";
+    }
 };
 
 comptime {

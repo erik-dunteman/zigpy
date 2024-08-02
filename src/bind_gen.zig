@@ -30,6 +30,12 @@ pub fn main() !void {
         \\libzigpy.{{init}}.restype = POINTER({{struct_name}})
         \\libzigpy.{{del}}.argtypes = [POINTER({{struct_name}})]
         \\
+        \\# define c interfaces
+        \\{{#methods}}
+        \\libzigpy.{{zigname}}.argtypes = [POINTER({{struct_name}}){{#args}}, {{ctype}}{{/args}}]
+        \\libzigpy.{{zigname}}.restype = {{res_ctype}}
+        \\{{/methods}}
+        \\
         \\class {{struct_name}}():
         \\  def __init__(self):
         \\    self.ptr = libzigpy.{{init}}()
@@ -54,7 +60,9 @@ pub fn main() !void {
         \\  {{#args}}
         \\      c_{{name}} = {{conversion_func}}
         \\  {{/args}}
-        \\      return libzigpy.{{zigname}}(self.ptr{{#args}}, c_{{name}}{{/args}})
+        \\      c_res = libzigpy.{{zigname}}(self.ptr{{#args}}, c_{{name}}{{/args}})
+        \\      res = {{res_conversion_func}}
+        \\      return res
         \\
         \\
         \\  {{/methods}}
@@ -102,12 +110,16 @@ pub fn main() !void {
             const Arg = struct {
                 name: []const u8,
                 pytype: []const u8,
+                ctype: []const u8,
                 conversion_func: []const u8,
             };
             const Method = struct {
                 pyname: []const u8,
                 zigname: []const u8,
                 args: []Arg,
+                res_ctype: []const u8,
+                render_res_ctype: bool,
+                res_conversion_func: []const u8, // for any extra conversion needed
             };
             var methods = std.ArrayList(Method).init(alloc);
             inline for (struct_info.decls) |decl| {
@@ -133,25 +145,26 @@ pub fn main() !void {
                             // string type
                             [*:0]u8 => {
                                 const arg_name: []const u8 = "arg1"; // this is annoying, we can't use user's arg name
+                                const ctype: []const u8 = "c_char_p";
                                 try args_data.append(Arg{
                                     .name = arg_name, //todo: increment
                                     .pytype = "str",
+                                    .ctype = ctype,
                                     .conversion_func = try mustache.allocRenderText(
                                         alloc,
-                                        "c_char_p({{name}}.encode('utf-8'))",
+                                        "{{name}}.encode('utf-8')",
                                         .{ .name = arg_name },
                                     ),
                                 });
-                                const type_id: []const u8 = "c_char_p";
                                 var is_imported = false;
                                 for (c_type_import_data.items) |c_type_import| {
-                                    if (std.mem.eql(u8, c_type_import.id, type_id)) {
+                                    if (std.mem.eql(u8, c_type_import.id, ctype)) {
                                         is_imported = true;
                                         break;
                                     }
                                 }
                                 if (!is_imported) {
-                                    try c_type_import_data.append(.{ .id = type_id });
+                                    try c_type_import_data.append(.{ .id = ctype });
                                 }
                             },
                             else => {
@@ -162,10 +175,45 @@ pub fn main() !void {
                             },
                         }
                     }
+
+                    const maybe_res_ctype: ?[]const u8 = switch (user_fn_info.Fn.return_type.?) {
+                        void => "c_void_p",
+                        *targetStruct => null, // todo: if user returns a valid pointer, this would break
+                        i32 => "c_int",
+                        else => {
+                            @compileLog(user_fn_info.Fn.return_type.?);
+                            @compileError("unsupported return type");
+                        },
+                        [*:0]const u8 => "c_char_p",
+                    };
+
+                    // assure those types are imported
+                    if (maybe_res_ctype) |res_ctype| {
+                        var is_imported = false;
+                        for (c_type_import_data.items) |c_type_import| {
+                            if (std.mem.eql(u8, c_type_import.id, res_ctype)) {
+                                is_imported = true;
+                                break;
+                            }
+                        }
+                        if (!is_imported) {
+                            try c_type_import_data.append(.{ .id = res_ctype });
+                        }
+                    }
+
+                    // render conversion function
+                    const res_conversion_func = switch (user_fn_info.Fn.return_type orelse void) {
+                        [*:0]const u8 => "c_res.decode('utf-8')",
+                        else => "c_res",
+                    };
+
                     try methods.append(.{
                         .pyname = decl.name,
                         .zigname = zigname,
                         .args = args_data.items,
+                        .res_ctype = maybe_res_ctype orelse "",
+                        .res_conversion_func = res_conversion_func,
+                        .render_res_ctype = (maybe_res_ctype != null),
                     });
                 }
             }

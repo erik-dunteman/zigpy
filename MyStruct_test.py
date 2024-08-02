@@ -15,3 +15,9 @@ print("a", my_struct.a)
 print("b", my_struct.b)
 my_struct.print()
 my_struct.print_pystring("testing func args")
+
+sum = my_struct.sum()
+print("sum", sum)
+
+static_str = my_struct.get_static_str()
+print("static_str", static_str)
