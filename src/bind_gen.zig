@@ -3,6 +3,51 @@ const builtin = @import("builtin");
 const mustache = @import("vendors/mustache-zig/src/mustache.zig");
 const template = @import("./template.zig").get_template();
 
+const wrapperType = union(enum) {
+    methodArg,
+    methodResult,
+};
+
+const wrappedResult = struct {
+    nativeType: type,
+    ctype: []const u8,
+    ctype_to_py_fn: ?[]const u8,
+};
+
+const wrappedArg = struct {
+    nativeType: type,
+    identifier: []const u8,
+    ctype: []const u8,
+    py_to_ctype_fn: ?[]const u8,
+};
+
+fn wrapType(
+    comptime T: type,
+    comptime WT: wrapperType,
+) type {
+    switch (T) {
+        i32 => {
+            const ctype = "c_int";
+            switch (WT) {
+                .methodArg => return wrappedArg{
+                    .identifier = "arg1",
+                    .nativeType = T,
+                    .ctype = ctype,
+                    .py_to_ctype_fn = null,
+                },
+                .methodResult => return wrappedResult{
+                    .nativeType = T,
+                    .ctype = ctype,
+                    .ctype_to_py_fn = null,
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
+    return struct {};
+}
+
 // users should import their own library
 // todo: autodetect this or do something tricky in build.zig
 const targetStruct = @import("./example_lib.zig").MyStruct;
@@ -85,6 +130,8 @@ pub fn main() !void {
                     const user_fn_info = @typeInfo(@TypeOf(user_fn));
                     // it's a func
                     inline for (user_fn_info.Fn.params) |param| {
+                        const wrapped = wrapType(param.type.?, wrapperType.methodArg);
+                        @compileLog("wrapped", wrapped);
                         switch (param.type.?) {
                             *targetStruct => {
                                 // we assume it's self here, ignore
