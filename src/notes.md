@@ -43,8 +43,8 @@ ideas:
 zigpy types are:
 - structs, with a "value" that is a primative types that do clearly map to c_type
 - follows interface:
-  - toCType() to get python func to convert to ctype
-  - fromCType() to get python func to convert from ctype
+  - toCType() is a stringified python func to be executed by python
+  - fromCType() is a stringified python func to be executed by python
 
 tried: type alias, but the type gets erased. annoying thing about struct approach is users can't return it outright since c callconv won't work. though export struct could maybe generate wrapper funcs to extract inner values. or make extern struct, generate python struct with _fields_ = ["value", value_ctype], argtype/restype is that generated type, pull value as conversion func. See MyStructProto
 
@@ -69,10 +69,12 @@ workflow would be like:
   - if special zigpy type:
     - it's an extern struct so callconv will work
     - get equiv c_type for .value
+    - get equiv py_type for c_type
     - get conversion_func with .fromCType
     - generate
-      - class _ZigPyType(Structure):\n\t_fields_ = [("value", c_type)]
+      - class _ZigPyType(Structure):\n\t_fields_ = [("value", c_type)] # for example class _PyString with value c_char_py
       - libzigpy.restype = _PyString
-      - function signature (arg_name: py_type)
-      - arg_name = conv_to_ctype(arg_name) # shadow name to avoid insane logic of tracking new var names
-      - pass arg_name into libzigpy
+      - function signature returns py_type
+      - get c_res_wrapped from libzigpy
+      - c_res = c_res_wrapped.value # since is a _ZigPyType it will have a .value
+      - res = exec(c_res_wrapped.fromCType()(res)) # kinda sketch but we execute stringified conversion func from zig to avoid templating it in. actually scratch that, do itt right. about to land so can;t fix now
