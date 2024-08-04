@@ -49,17 +49,38 @@ pub fn main() !void {
         } else {
             // these are user-defined methods
             // start building up a MethodData
-            const libzigpy_ident = "codegenstruct_" ++ decl.name;
-            var method_data = templ.MethodData.init(alloc, struct_ident, libzigpy_ident);
+            const ident = decl.name;
 
             const user_fn = @field(targetStruct, decl.name);
             const user_fn_info = @typeInfo(@TypeOf(user_fn));
             std.debug.assert(user_fn_info == .Fn);
+            std.debug.assert(user_fn_info.Fn.params.len > 0);
+
+            var method_data = try templ.MethodData.init(alloc, struct_ident, ident);
+            try switch (user_fn_info.Fn.return_type.?) {
+                *targetStruct => method_data.addSelfReturnType(true),
+                targetStruct => method_data.addSelfReturnType(false),
+                else => method_data.addReturnType(user_fn_info.Fn.return_type.?),
+            };
+
+            // "self" arg
+
+            // regular args
             inline for (user_fn_info.Fn.params, 0..) |param, i| {
+                if (i == 0) {
+                    // enforce that first arg is always "self"
+                    switch (param.type.?) {
+                        *targetStruct => continue,
+                        targetStruct => continue,
+                        else => @compileError("first method arg must be self"),
+                    }
+                    continue;
+                }
+
                 const arg_ident = std.fmt.comptimePrint("arg{}", .{i});
                 switch (param.type.?) {
-                    *targetStruct => try method_data.addSelfArg(true, arg_ident),
-                    targetStruct => try method_data.addSelfArg(false, arg_ident),
+                    *targetStruct => try method_data.addSelfArg(arg_ident, true),
+                    targetStruct => try method_data.addSelfArg(arg_ident, true),
                     else => try method_data.addArg(param.type.?, arg_ident),
                 }
             }

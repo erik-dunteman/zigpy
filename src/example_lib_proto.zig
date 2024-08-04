@@ -25,6 +25,11 @@ pub const MyStruct = extern struct {
     pub fn sum(ptr: *MyStruct) callconv(.C) i32 {
         return ptr.a + ptr.b;
     }
+
+    pub fn update(ptr: *MyStruct, a: i32, b: i32) callconv(.C) void {
+        ptr.a = a;
+        ptr.b = b;
+    }
 };
 
 comptime {

@@ -16,11 +16,34 @@ pub fn get_template() []const u8 {
         \\    _fields_ = [{{#fields}}("{{ident}}", {{ctype}}), {{/fields}}]
         \\
         \\# Shared Library Function interfaces
+        \\libzigpy.codegenstruct___init__.restype = POINTER({{struct_ident}})
+        \\libzigpy.codegenstruct___del__.argtypes = [POINTER({{struct_ident}})]
         \\{{#methods}}
         \\libzigpy.{{libzigpy_ident}}.argtypes = [{{#args}}{{ctype}}, {{/args}}]
-        \\
+        \\libzigpy.{{libzigpy_ident}}.restype = {{res_ctype}}
         \\{{/methods}}
+        \\class {{struct_ident}}():
+        \\  def __init__(self):
+        \\    self.ptr = libzigpy.codegenstruct___init__()
+        \\  def __del__(self):
+        \\    libzigpy.codegenstruct___del__(self.ptr)
         \\
+        \\  {{#fields}}
+        \\  @property
+        \\  def {{ident}}(self):
+        \\      return self.ptr.contents.{{ident}}
+        \\  @{{ident}}.setter
+        \\  def {{ident}}(self, value: {{py_type}}):
+        \\      self.ptr.contents.{{ident}} = value
+        \\
+        \\  {{/fields}}
+        \\
+        \\  {{#methods}}
+        \\  def {{ident}}(self{{#args}}, {{ident}}: {{py_type}}{{/args}}):
+        \\      # todo
+        \\      return libzigpy.{{libzigpy_ident}}(self.ptr{{#args}}, {{ident}}{{/args}})
+        \\
+        \\  {{/methods}}
     ;
     return template;
 }
@@ -28,6 +51,7 @@ pub fn get_template() []const u8 {
 const FieldData = struct {
     ident: []const u8,
     ctype: []const u8,
+    py_type: []const u8,
 };
 const FieldRenderable = FieldData;
 
@@ -39,6 +63,7 @@ const CTypeImportRenderable = CTypeImportData;
 const ZigType = union(enum) {
     self, // special case for users referring to their own struct
     self_ptr, // special case for users referring to their own struct
+    void,
     i32,
     bool,
     zero_terminated_u8_slice,
@@ -47,6 +72,7 @@ const ZigType = union(enum) {
         switch (T) {
             i32 => return .i32,
             bool => return .bool,
+            void => return .void,
             [*:0]u8 => return .zero_terminated_u8_slice,
             else => @compileError("unsupported type"),
         }
@@ -59,6 +85,7 @@ const ZigType = union(enum) {
             .zero_terminated_u8_slice => "c_char_p",
             .self => "{{struct_ident}}",
             .self_ptr => "POINTER({{struct_ident}})",
+            .void => "c_void_p",
         };
     }
 
@@ -69,6 +96,7 @@ const ZigType = union(enum) {
             .zero_terminated_u8_slice => "str",
             .self => "{{struct_ident}}",
             .self_ptr => "{{struct_ident}}",
+            .void => "None",
         };
     }
 };
@@ -85,15 +113,14 @@ pub const MethodData = struct {
     alloc: std.mem.Allocator,
     struct_ident: []const u8,
     libzigpy_ident: []const u8,
+    ident: []const u8,
+    res_ctype: []const u8 = undefined,
+    res_py_type: []const u8 = undefined,
     args: std.ArrayList(ArgData),
 
-    pub fn init(alloc: std.mem.Allocator, struct_ident: []const u8, libzigpy_ident: []const u8) MethodData {
-        return MethodData{
-            .alloc = alloc,
-            .struct_ident = struct_ident,
-            .libzigpy_ident = libzigpy_ident,
-            .args = std.ArrayList(ArgData).init(alloc),
-        };
+    pub fn init(alloc: std.mem.Allocator, struct_ident: []const u8, ident: []const u8) !MethodData {
+        const libzigpy_ident = try std.fmt.allocPrint(alloc, "codegenstruct_{s}", .{ident});
+        return MethodData{ .alloc = alloc, .struct_ident = struct_ident, .ident = ident, .libzigpy_ident = libzigpy_ident, .args = std.ArrayList(ArgData).init(alloc) };
     }
     pub fn addArg(self: *MethodData, comptime zig_type: type, ident: []const u8) !void {
         const zt = ZigType.fromType(zig_type);
@@ -104,7 +131,8 @@ pub const MethodData = struct {
             .py_type = zt.toPyType(),
         });
     }
-    pub fn addSelfArg(self: *MethodData, is_ptr: bool, ident: []const u8) !void {
+
+    pub fn addSelfArg(self: *MethodData, ident: []const u8, is_ptr: bool) !void {
         // for the case where user is calling a method on self
         const zt: ZigType = if (is_ptr) .self_ptr else .self;
         var ctype = zt.toCType();
@@ -121,12 +149,34 @@ pub const MethodData = struct {
             .py_type = py_type,
         });
     }
+
+    pub fn addReturnType(self: *MethodData, comptime zig_type: type) !void {
+        const zt = ZigType.fromType(zig_type);
+        self.res_ctype = zt.toCType();
+        self.res_py_type = zt.toPyType();
+    }
+
+    pub fn addSelfReturnType(self: *MethodData, is_ptr: bool) !void {
+        const zt: ZigType = if (is_ptr) .self_ptr else .self;
+        var ctype = zt.toCType();
+        var py_type = zt.toPyType();
+
+        // ctype and py_type have to be rendered with the struct_ident
+        ctype = try mustache.allocRenderText(self.alloc, ctype, .{ .struct_ident = self.struct_ident });
+        py_type = try mustache.allocRenderText(self.alloc, py_type, .{ .struct_ident = self.struct_ident });
+
+        self.res_ctype = ctype;
+        self.res_py_type = py_type;
+    }
 };
 
 // methodData contains an arrayList which is not renderable
 // so we need to convert it to a renderable array
 pub const MethodRenderable = struct {
     libzigpy_ident: []const u8,
+    ident: []const u8,
+    res_ctype: []const u8,
+    res_py_type: []const u8,
     args: []ArgData, // for rendering
 };
 fn getMethodRenderables(alloc: std.mem.Allocator, methods: std.ArrayList(MethodData)) ![](MethodRenderable) {
@@ -134,6 +184,9 @@ fn getMethodRenderables(alloc: std.mem.Allocator, methods: std.ArrayList(MethodD
     for (methods.items) |method| {
         const method_data_item = MethodRenderable{
             .libzigpy_ident = method.libzigpy_ident,
+            .ident = method.ident,
+            .res_ctype = method.res_ctype,
+            .res_py_type = method.res_py_type,
             .args = method.args.items,
         };
         try method_data.append(method_data_item);
@@ -175,18 +228,27 @@ pub const TemplateData = struct {
     pub fn addField(self: *TemplateData, ident: []const u8, comptime T: type) !void {
         const zt = ZigType.fromType(T);
         const ctype = zt.toCType();
+        const py_type = zt.toPyType();
         try self.fields.append(.{
             .ident = ident,
             .ctype = ctype,
+            .py_type = py_type,
         });
         try self.assureCTypeImport(ctype);
     }
 
     pub fn addMethod(self: *TemplateData, method: *MethodData) !void {
         try self.methods.append(method.*);
+        for (method.args.items) |arg| {
+            try self.assureCTypeImport(arg.ctype);
+        }
+        try self.assureCTypeImport(method.res_ctype);
     }
 
     fn assureCTypeImport(self: *TemplateData, ctype: []const u8) !void {
+        // ignore imports referring to the self type
+        if (std.mem.containsAtLeast(u8, ctype, 1, self.struct_ident)) return;
+
         var is_imported = false;
         for (self.ctype_imports.items) |c_type_import| {
             if (std.mem.eql(u8, c_type_import.ident, ctype)) {
