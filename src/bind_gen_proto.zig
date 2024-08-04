@@ -50,14 +50,18 @@ pub fn main() !void {
             // these are user-defined methods
             // start building up a MethodData
             const libzigpy_ident = "codegenstruct_" ++ decl.name;
-            var method_data = templ.MethodData.init(alloc, libzigpy_ident);
+            var method_data = templ.MethodData.init(alloc, struct_ident, libzigpy_ident);
 
             const user_fn = @field(targetStruct, decl.name);
             const user_fn_info = @typeInfo(@TypeOf(user_fn));
             std.debug.assert(user_fn_info == .Fn);
             inline for (user_fn_info.Fn.params, 0..) |param, i| {
                 const arg_ident = std.fmt.comptimePrint("arg{}", .{i});
-                try method_data.addArg(param.type.?, arg_ident);
+                switch (param.type.?) {
+                    *targetStruct => try method_data.addSelfArg(true, arg_ident),
+                    targetStruct => try method_data.addSelfArg(false, arg_ident),
+                    else => try method_data.addArg(param.type.?, arg_ident),
+                }
             }
             try template_data.addMethod(&method_data);
         }

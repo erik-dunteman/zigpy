@@ -37,12 +37,13 @@ const CTypeImportData = struct {
 const CTypeImportRenderable = CTypeImportData;
 
 const ZigType = union(enum) {
+    self, // special case for users referring to their own struct
+    self_ptr, // special case for users referring to their own struct
     i32,
     bool,
     zero_terminated_u8_slice,
 
     fn fromType(comptime T: type) ZigType {
-        @compileLog(T);
         switch (T) {
             i32 => return .i32,
             bool => return .bool,
@@ -56,6 +57,8 @@ const ZigType = union(enum) {
             .i32 => "c_int",
             .bool => "c_int",
             .zero_terminated_u8_slice => "c_char_p",
+            .self => "{{struct_ident}}",
+            .self_ptr => "POINTER({{struct_ident}})",
         };
     }
 
@@ -64,6 +67,8 @@ const ZigType = union(enum) {
             .i32 => "int",
             .bool => "bool",
             .zero_terminated_u8_slice => "str",
+            .self => "{{struct_ident}}",
+            .self_ptr => "{{struct_ident}}",
         };
     }
 };
@@ -78,12 +83,14 @@ const ArgRenderable = ArgData;
 
 pub const MethodData = struct {
     alloc: std.mem.Allocator,
+    struct_ident: []const u8,
     libzigpy_ident: []const u8,
     args: std.ArrayList(ArgData),
 
-    pub fn init(alloc: std.mem.Allocator, libzigpy_ident: []const u8) MethodData {
+    pub fn init(alloc: std.mem.Allocator, struct_ident: []const u8, libzigpy_ident: []const u8) MethodData {
         return MethodData{
             .alloc = alloc,
+            .struct_ident = struct_ident,
             .libzigpy_ident = libzigpy_ident,
             .args = std.ArrayList(ArgData).init(alloc),
         };
@@ -95,6 +102,23 @@ pub const MethodData = struct {
             .ident = ident,
             .ctype = zt.toCType(),
             .py_type = zt.toPyType(),
+        });
+    }
+    pub fn addSelfArg(self: *MethodData, is_ptr: bool, ident: []const u8) !void {
+        // for the case where user is calling a method on self
+        const zt: ZigType = if (is_ptr) .self_ptr else .self;
+        var ctype = zt.toCType();
+        var py_type = zt.toPyType();
+
+        // ctype and py_type have to be rendered with the struct_ident
+        ctype = try mustache.allocRenderText(self.alloc, ctype, .{ .struct_ident = self.struct_ident });
+        py_type = try mustache.allocRenderText(self.alloc, py_type, .{ .struct_ident = self.struct_ident });
+
+        try self.args.append(.{
+            .zig_type = zt,
+            .ident = ident,
+            .ctype = ctype,
+            .py_type = py_type,
         });
     }
 };

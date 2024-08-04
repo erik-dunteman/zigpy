@@ -10,5 +10,5 @@ class MyStruct(Structure):
     _fields_ = [("a", c_int), ("b", c_int), ]
 
 # Shared Library Function interfaces
-libzigpy.codegenstruct_sum.argtypes = [c_int, c_int, ]
+libzigpy.codegenstruct_sum.argtypes = [POINTER(MyStruct), ]
 
