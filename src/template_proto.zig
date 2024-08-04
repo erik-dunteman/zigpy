@@ -20,18 +20,21 @@ pub fn get_template() []const u8 {
         \\libzigpy.{{libzigpy_ident}}.argtypes = [{{#args}}{{ctype}}, {{/args}}]
         \\
         \\{{/methods}}
+        \\
     ;
     return template;
 }
 
-const Field = struct {
+const FieldData = struct {
     ident: []const u8,
     ctype: []const u8,
 };
+const FieldRenderable = FieldData;
 
-const CTypeImport = struct {
+const CTypeImportData = struct {
     ident: []const u8,
 };
+const CTypeImportRenderable = CTypeImportData;
 
 const ZigType = union(enum) {
     i32,
@@ -39,6 +42,7 @@ const ZigType = union(enum) {
     zero_terminated_u8_slice,
 
     fn fromType(comptime T: type) ZigType {
+        @compileLog(T);
         switch (T) {
             i32 => return .i32,
             bool => return .bool,
@@ -64,48 +68,69 @@ const ZigType = union(enum) {
     }
 };
 
-const Arg = struct {
+const ArgData = struct {
     zig_type: ZigType,
+    ctype: []const u8,
+    py_type: []const u8,
     ident: []const u8,
 };
+const ArgRenderable = ArgData;
 
-pub const Method = struct {
+pub const MethodData = struct {
     alloc: std.mem.Allocator,
     libzigpy_ident: []const u8,
-    argsList: std.ArrayList(Arg),
-    args: []Arg, // for rendering
+    args: std.ArrayList(ArgData),
 
-    pub fn init(alloc: std.mem.Allocator, libzigpy_ident: []const u8) Method {
-        var self = Method{
+    pub fn init(alloc: std.mem.Allocator, libzigpy_ident: []const u8) MethodData {
+        return MethodData{
             .alloc = alloc,
             .libzigpy_ident = libzigpy_ident,
-            .argsList = std.ArrayList(Arg).init(alloc),
-            .args = undefined,
+            .args = std.ArrayList(ArgData).init(alloc),
         };
-        self.args = self.argsList.items;
-        return self;
     }
-    pub fn addArg(self: *Method, comptime zig_type: type, ident: []const u8) !void {
-        try self.argsList.append(.{
-            .zig_type = ZigType.fromType(zig_type),
+    pub fn addArg(self: *MethodData, comptime zig_type: type, ident: []const u8) !void {
+        const zt = ZigType.fromType(zig_type);
+        try self.args.append(.{
+            .zig_type = zt,
             .ident = ident,
+            .ctype = zt.toCType(),
+            .py_type = zt.toPyType(),
         });
-        self.args = self.argsList.items;
     }
 };
 
+// methodData contains an arrayList which is not renderable
+// so we need to convert it to a renderable array
+pub const MethodRenderable = struct {
+    libzigpy_ident: []const u8,
+    args: []ArgData, // for rendering
+};
+fn getMethodRenderables(alloc: std.mem.Allocator, methods: std.ArrayList(MethodData)) ![](MethodRenderable) {
+    var method_data = std.ArrayList(MethodRenderable).init(alloc);
+    for (methods.items) |method| {
+        const method_data_item = MethodRenderable{
+            .libzigpy_ident = method.libzigpy_ident,
+            .args = method.args.items,
+        };
+        try method_data.append(method_data_item);
+    }
+    return method_data.items;
+}
+
+// TemplateData is what we'll be building out while inspecting the zig struct
+// It will then be rendered
 pub const TemplateData = struct {
     alloc: std.mem.Allocator,
     struct_ident: []const u8,
     shared_lib_extension: []const u8,
-    fields: std.ArrayList(Field),
-    ctype_imports: std.ArrayList(CTypeImport),
-    methods: std.ArrayList(Method),
+    fields: std.ArrayList(FieldData),
+    ctype_imports: std.ArrayList(CTypeImportData),
+    methods: std.ArrayList(MethodData),
 
     pub fn init(alloc: std.mem.Allocator, struct_ident: []const u8) TemplateData {
-        const fields = std.ArrayList(Field).init(alloc);
-        const ctype_imports = std.ArrayList(CTypeImport).init(alloc);
-        const methods = std.ArrayList(Method).init(alloc);
+        const fields = std.ArrayList(FieldData).init(alloc);
+        const ctype_imports = std.ArrayList(CTypeImportData).init(alloc);
+        const methods = std.ArrayList(MethodData).init(alloc);
 
         const shared_lib_extension = switch (builtin.os.tag) {
             .macos => "dylib",
@@ -123,20 +148,17 @@ pub const TemplateData = struct {
         };
     }
 
-    pub fn addField(
-        self: *TemplateData,
-        ident: []const u8,
-        ctype: []const u8,
-    ) !void {
+    pub fn addField(self: *TemplateData, ident: []const u8, comptime T: type) !void {
+        const zt = ZigType.fromType(T);
+        const ctype = zt.toCType();
         try self.fields.append(.{
             .ident = ident,
             .ctype = ctype,
         });
-
         try self.assureCTypeImport(ctype);
     }
 
-    pub fn addMethod(self: *TemplateData, method: *Method) !void {
+    pub fn addMethod(self: *TemplateData, method: *MethodData) !void {
         try self.methods.append(method.*);
     }
 
@@ -155,13 +177,14 @@ pub const TemplateData = struct {
 
     pub fn render(self: *TemplateData) ![]const u8 {
         const template = get_template();
-        const data = .{
+
+        const template_renderable = .{
             .struct_ident = self.struct_ident,
             .shared_lib_extension = self.shared_lib_extension,
             .fields = self.fields.items,
             .ctype_imports = self.ctype_imports.items,
-            .methods = self.methods.items,
+            .methods = try getMethodRenderables(self.alloc, self.methods),
         };
-        return try mustache.allocRenderText(self.alloc, template, data);
+        return mustache.allocRenderText(self.alloc, template, template_renderable);
     }
 };
