@@ -1,3 +1,7 @@
+// example_lib.zig is the user's zig code
+// it contains the struct they want to expose to python
+// users are responsible for exporting the struct with exportStruct
+
 const std = @import("std");
 const bind = @import("bind_gen.zig");
 
@@ -36,7 +40,7 @@ pub const MyStruct = extern struct {
     }
 
     // return statically-allocated string, infinite lifetime
-    pub fn get_static_str() callconv(.C) [*:0]const u8 {
+    pub fn get_static_str(_: *MyStruct) callconv(.C) [*:0]const u8 {
         return "Hello from Zig!";
     }
 };
