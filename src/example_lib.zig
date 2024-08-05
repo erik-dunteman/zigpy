@@ -1,3 +1,7 @@
+// example_lib.zig is the user's zig code
+// it contains the struct they want to expose to python
+// users are responsible for exporting the struct with exportStruct
+
 const std = @import("std");
 const bind = @import("bind_gen.zig");
 

@@ -1,6 +1,10 @@
+// bind-gen.zig is the entry point for the build-time code-gen
+// it is responsible for parsing the user's zig struct and generating the python bindings
+// it uses template.zig to store the data needed to render the template
+
 const std = @import("std");
 const print = std.debug.print;
-const templ = @import("./template.zig");
+const templ = @import("./template_data.zig");
 
 const targetStruct = @import("./example_lib.zig").MyStruct;
 
