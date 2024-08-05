@@ -36,7 +36,7 @@ pub const MyStruct = extern struct {
     }
 
     // return statically-allocated string, infinite lifetime
-    pub fn get_static_str() callconv(.C) [*:0]const u8 {
+    pub fn get_static_str(_: *MyStruct) callconv(.C) [*:0]const u8 {
         return "Hello from Zig!";
     }
 };

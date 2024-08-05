@@ -46,7 +46,7 @@ zigpy types are:
   - toCType() is a stringified python func to be executed by python
   - fromCType() is a stringified python func to be executed by python
 
-tried: type alias, but the type gets erased. annoying thing about struct approach is users can't return it outright since c callconv won't work. though export struct could maybe generate wrapper funcs to extract inner values. or make extern struct, generate python struct with _fields_ = ["value", value_ctype], argtype/restype is that generated type, pull value as conversion func. See MyStructProto
+tried: type alias, but the type gets erased. annoying thing about struct approach is users can't return it outright since c callconv won't work. though export struct could maybe generate wrapper funcs to extract inner values. or make extern struct, generate python struct with _fields_ = ["value", value_ctype], argtype/restype is that generated type, pull value as conversion func. See MyStructProto.py
 
 workflow would be like:
 - scan types
